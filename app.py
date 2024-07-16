@@ -27,6 +27,8 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
+
+####################################################
 # Descargar los recursos necesarios de NLTK
 nltk.download('stopwords')
 nltk.download('wordnet')
@@ -56,8 +58,12 @@ class_mapping = {
 def index():
     return render_template('index.html')
 
+import time
+
 @app.route('/extract_comments', methods=['POST'])
 def extract_comments():
+    start_time = time.time()  # Iniciar el temporizador
+
     youtuber_name = request.form['youtuber_name']
     num_videos = int(request.form['num_videos'])
 
@@ -70,11 +76,9 @@ def extract_comments():
     try:
         for i in range(num_videos):
             driver.get("https://www.youtube.com")
-            logging.info("YouTube cargado")
             search_box = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.NAME, "search_query"))
             )
-            logging.info("Cuadro de búsqueda encontrado")
             search_box.send_keys(youtuber_name)
             search_box.send_keys(Keys.RETURN)
             time.sleep(5)
@@ -82,11 +86,9 @@ def extract_comments():
             channel_elements = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.ID, "channel-title"))
             )
-            logging.info("Elementos de canal encontrados")
             for channel in channel_elements:
                 if channel.text.strip().lower() == youtuber_name.strip().lower():
                     channel.click()
-                    logging.info("Canal encontrado y clicado")
                     break
             else:
                 return jsonify({"error": "No se encontró el canal exacto"})
@@ -96,13 +98,11 @@ def extract_comments():
                 EC.element_to_be_clickable((By.XPATH, "//a[@href and contains(@href, '/videos')]"))
             )
             driver.execute_script("arguments[0].click();", videos_tab)
-            logging.info("Navegado a la pestaña de videos")
             time.sleep(5)
 
             video_elements = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.XPATH, '//a[@id="video-title"]'))
             )
-            logging.info("Elementos de video encontrados")
 
             if len(video_elements) < num_videos:
                 return jsonify({"error": f"El canal solo tiene {len(video_elements)} videos"})
@@ -111,10 +111,7 @@ def extract_comments():
             video_url = selected_video.get_attribute("href")
             driver.get(video_url)
             driver.maximize_window()
-            logging.info(f"Video cargado: {video_url}")
             time.sleep(2)
-
-            driver.save_screenshot(f'screenshot_{i}.png')  # Guardar una captura de pantalla
 
             title = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, 'h1.title.style-scope.ytd-video-primary-info-renderer'))
@@ -138,8 +135,7 @@ def extract_comments():
                 video_comments = [elem.text for elem in comment_elems]
                 for comment in video_comments:
                     comments.append({"title": title, "url": video_url, "comment": comment})
-            except StaleElementReferenceException as e:
-                logging.error(f"Error de referencia obsoleta: {e}")
+            except StaleElementReferenceException:
                 driver.refresh()
                 time.sleep(2)
                 comment_elems = WebDriverWait(driver, 10).until(
@@ -170,7 +166,7 @@ def extract_comments():
 
     # Funciones de preprocesamiento
     def remove_punctuation(text):
-        return text.translate(str.maketrans('', '', PUNCT_TO_REMOVE))
+        return text.translate(str.maketrans('', '', string.punctuation))
 
     def tokenize_text(text):
         if not isinstance(text, str):
@@ -184,7 +180,7 @@ def extract_comments():
         text = re.sub(r'\d+', '', text)
         text = remove_punctuation(text)
         words = text.split()
-        filtered_words = [word for word in words if word.lower() not in stopwords_es]
+        filtered_words = [word for word in words if word.lower() not in stopwords.words('spanish')]
         return ' '.join(filtered_words)
 
     def lemmatize_text(text):
@@ -202,9 +198,12 @@ def extract_comments():
     preprocessed_output_file = 'preprocessed_yt_comments.csv'
     dataframe.to_csv(preprocessed_output_file, index=False)
 
+    end_time = time.time()  # Finalizar el temporizador
+    elapsed_time = end_time - start_time  # Calcular el tiempo transcurrido
+
+    return jsonify({"message": f"Se han extraído y preprocesado comentarios de {num_videos} videos. Datos guardados en '{preprocessed_output_file}'. Tiempo tomado: {elapsed_time:.2f} segundos."})
 
 
-    return jsonify({"message": f"Se han extraído y preprocesado comentarios de {num_videos} videos. Datos guardados en '{preprocessed_output_file}'."})
 @app.route('/process_csv', methods=['POST'])
 def process_csv():
     # Leer el archivo CSV con los comentarios
@@ -216,11 +215,11 @@ def process_csv():
 
     # Paso 2: Preprocesar los comentarios
     # Cargar el vectorizador TF-IDF usado durante el entrenamiento
-    tfidf_vectorizer = joblib.load('C:/Users/lcres/PycharmProjects/SELENIUM/preprocesamiento/vectorizer.pkl')  # Asegúrate de haber guardado el vectorizador durante el entrenamiento
+    tfidf_vectorizer = joblib.load('preprocesamiento/vectorizer.pkl')  # Asegúrate de haber guardado el vectorizador durante el entrenamiento
     X_tfidf = tfidf_vectorizer.transform(comentarios)
 
     # Paso 3: Cargar el modelo entrenado
-    best_rf_classifier = joblib.load('C:/Users/lcres/PycharmProjects/SELENIUM/preprocesamiento/mejor_modelo_rf.pkl')
+    best_rf_classifier = joblib.load('preprocesamiento/mejor_modelo_rf.pkl')
 
     # Paso 4: Hacer predicciones con el modelo
     predicciones = best_rf_classifier.predict(X_tfidf)
