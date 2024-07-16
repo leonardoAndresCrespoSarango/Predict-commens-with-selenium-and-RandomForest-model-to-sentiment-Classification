@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extracción de Comentarios de YouTube</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <h1>Extracción de Comentarios de YouTube</h1>
+    <form id="extractForm" method="POST" action="/extract_comments">
+        <label for="youtuber_name">Nombre del YouTuber:</label>
+        <input type="text" id="youtuber_name" name="youtuber_name" required><br>
+        <label for="num_videos">Número de videos:</label>
+        <input type="number" id="num_videos" name="num_videos" min="1" required><br>
+        <button type="submit">Extraer Comentarios</button>
+    </form>
+    <div id="result"></div>
+    <script>
+        document.getElementById('extractForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            fetch('/extract_comments', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultDiv = document.getElementById('result');
+                if (data.error) {
+                    resultDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p>${data.message}</p>`;
+                }
+            });
+        });
+    </script>
+   <h1>Proceso de Predicciones en CSV</h1>
+    <form method="POST" action="/process_csv">
+        <button type="submit">Procesar CSV y Generar Gráfica</button>
+    </form>
+
+    {% if graph_image %}
+    <h2>Distribución de las Clases Predichas</h2>
+    <img src="{{ url_for('static', filename=graph_image) }}" alt="Distribución de las Clases Predichas">
+    {% endif %}
+
+    {% if table_html %}
+    <h2>Tabla de Resultados</h2>
+    <iframe src="{{ url_for('static', filename=table_html) }}" width="100%" height="600px" style="border:none;"></iframe>
+    {% endif %}
+
+
+</body>
+</html>
