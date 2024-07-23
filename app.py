@@ -15,6 +15,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 import pandas as pd
 import copy
@@ -47,12 +48,16 @@ analyzer = SentimentIntensityAnalyzer()
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
-# Definir el diccionario de mapeo de clases
 class_mapping = {
-    0: "neutral",
-    1: "positive",
-    2: "negative"
-}
+        0: 'asustado',
+        1: 'enojado',
+        2: 'triste',
+        3: 'pacifico',
+        4: 'poderoso',
+        5: 'alegre'
+    }
+# Crear el diccionario inverso
+class_mapping_reverse = {v: k for k, v in class_mapping.items()}
 
 @app.route('/')
 def index():
@@ -165,36 +170,6 @@ def extract_comments():
     dataframe["comment"] = dataframe["comment"].str.lower()
 
     # Funciones de preprocesamiento
-    def remove_punctuation(text):
-        return text.translate(str.maketrans('', '', string.punctuation))
-
-    def tokenize_text(text):
-        if not isinstance(text, str):
-            return []
-        return word_tokenize(text)
-
-    def clean_text(tokens):
-        text = " ".join(tokens)
-        text = re.sub(r'http\S+|www.\S+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'[^\w\s,]', '', text, flags=re.UNICODE)
-        text = re.sub(r'\d+', '', text)
-        text = remove_punctuation(text)
-        words = text.split()
-        filtered_words = [word for word in words if word.lower() not in stopwords.words('spanish')]
-        return ' '.join(filtered_words)
-
-    def lemmatize_text(text):
-        doc = nlp(text)
-        lemmatized_words = [token.lemma_ for token in doc]
-        return ' '.join(lemmatized_words)
-
-    dataframe['comment_tokenized'] = dataframe['comment'].apply(tokenize_text)
-    dataframe['comment_cleaned'] = dataframe['comment_tokenized'].apply(clean_text)
-    dataframe['comment_lemmatized'] = dataframe['comment_cleaned'].apply(lemmatize_text)
-    dataframe = dataframe.drop(['comment'], axis=1)
-    dataframe = dataframe.drop(['comment_tokenized'], axis=1)
-    dataframe = dataframe.drop(['comment_cleaned'], axis=1)
-
     preprocessed_output_file = 'preprocessed_yt_comments.csv'
     dataframe.to_csv(preprocessed_output_file, index=False)
 
@@ -210,8 +185,8 @@ def process_csv():
     df = pd.read_csv('preprocessed_yt_comments.csv')  # Asegúrate de que la columna con los comentarios se llama 'comment_lemmatized'
 
     # Manejar valores nulos: eliminar filas con valores nulos en la columna 'comment_lemmatized'
-    df = df.dropna(subset=['comment_lemmatized'])
-    comentarios = df['comment_lemmatized']
+    df = df.dropna(subset=['comment'])
+    comentarios = df['comment']
 
     # Paso 2: Preprocesar los comentarios
     # Cargar el vectorizador TF-IDF usado durante el entrenamiento
@@ -227,16 +202,6 @@ def process_csv():
     # Asegúrate de que predicciones es un array unidimensional
     if predicciones.ndim > 1:
         predicciones = predicciones.argmax(axis=1)
-
-    # Define el mapeo de índices a nombres de clases
-    class_mapping = {
-        0: 'scared',
-        1: 'mad',
-        2: 'sad',
-        3: 'peaceful',
-        4: 'powerful',
-        5: 'joyful'
-    }
 
     # Convertir las predicciones numéricas a nombres de clases
     predicciones_con_nombres = [class_mapping[pred] for pred in predicciones]
@@ -259,20 +224,82 @@ def process_csv():
     plt.savefig(plt_path)
     plt.close()
 
-    # Crear la tabla interactiva usando Plotly
     fig = go.Figure(data=[go.Table(
-        header=dict(values=list(df.columns),
-                    fill_color='paleturquoise',
-                    align='left'),
-        cells=dict(values=[df[col] for col in df.columns],
-                   fill_color='lavender',
-                   align='left'))
-    ])
+        header=dict(
+            values=list(df.columns),
+            fill_color='#FF0000',  # Color rojo de YouTube
+            font=dict(color='white', size=12),  # Texto en blanco
+            align='center'
+        ),
+        cells=dict(
+            values=[df[col] for col in df.columns],
+            fill_color='white',  # Fondo blanco
+            font=dict(color='black', size=11),  # Texto en negro
+            align='left'
+        )
+    )])
     table_path = os.path.join('static', 'predicciones_tabla.html')
     fig.write_html(table_path)
 
-    return render_template('index.html', graph_image='predicciones_grafica.png', table_html='predicciones_tabla.html')
+    # Obtener 5 comentarios aleatorios y sus predicciones
+    random_5_comentarios = df.sample(10)
 
+    # Mostrar los 5 comentarios aleatorios al usuario para que ingrese las etiquetas verdaderas
+    return render_template('index.html', comentarios=random_5_comentarios.to_dict(orient='records'), graph_image='predicciones_grafica.png', table_html='predicciones_tabla.html')
+
+@app.route('/submit_labels', methods=['POST'])
+def submit_labels():
+    # Obtener las etiquetas verdaderas del formulario
+    etiquetas_verdaderas = request.form.getlist('etiqueta_verdadera')
+    etiquetas_verdaderas = [class_mapping_reverse[label] for label in etiquetas_verdaderas]  # Convertir a índices numéricos
+
+    # Leer las predicciones originales
+    df = pd.read_csv('static/comentarios_con_predicciones.csv')
+
+    # Obtener los comentarios aleatorios que fueron etiquetados por el usuario
+    random_5_comentarios = df.sample(10)
+    predicciones = random_5_comentarios['predicciones_numericas'].tolist()
+    comentarios = random_5_comentarios['comment'].tolist()
+
+    # Calcular la matriz de confusión
+    matriz_confusion = confusion_matrix(etiquetas_verdaderas, predicciones)
+
+    # Mostrar la matriz de confusión
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(matriz_confusion, annot=True, fmt="d", cmap="YlGnBu", xticklabels=class_mapping.values(), yticklabels=class_mapping.values())
+    plt.title('Matriz de Confusión')
+    plt.xlabel('Predicción')
+    plt.ylabel('Etiqueta Verdadera')
+    confusion_matrix_path = os.path.join('static', 'matriz_confusion.png')
+    plt.savefig(confusion_matrix_path)
+    plt.close()
+
+    # Crear DataFrame con etiquetas reales y predichas
+    df_etiquetas = pd.DataFrame({
+        'Comentario': comentarios,
+        'Etiqueta Predicha': [class_mapping[pred] for pred in predicciones],
+        'Etiqueta Real': [class_mapping[real] for real in etiquetas_verdaderas]
+    })
+
+    # Crear la tabla interactiva usando Plotly
+    fig_etiquetas = go.Figure(data=[go.Table(
+        header=dict(
+            values=list(df_etiquetas.columns),
+            fill_color='#FF0000',  # Color rojo de YouTube
+            font=dict(color='white', size=12),  # Texto en blanco
+            align='center'
+        ),
+        cells=dict(
+            values=[df_etiquetas[col] for col in df_etiquetas.columns],
+            fill_color='white',  # Fondo blanco
+            font=dict(color='black', size=11),  # Texto en negro
+            align='left'
+        )
+    )])
+    etiquetas_table_path = os.path.join('static', 'etiquetas_tabla.html')
+    fig_etiquetas.write_html(etiquetas_table_path)
+
+    return render_template('index.html', confusion_matrix_image='matriz_confusion.png', etiquetas_table_html='etiquetas_tabla.html')
 
 if __name__ == '__main__':
     app.run(debug=True)

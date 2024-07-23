@@ -7,15 +7,78 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <h1>Extracción de Comentarios de YouTube</h1>
-    <form id="extractForm" method="POST" action="/extract_comments">
-        <label for="youtuber_name">Nombre del YouTuber:</label>
-        <input type="text" id="youtuber_name" name="youtuber_name" required><br>
-        <label for="num_videos">Número de videos:</label>
-        <input type="number" id="num_videos" name="num_videos" min="1" required><br>
-        <button type="submit">Extraer Comentarios</button>
-    </form>
-    <div id="result"></div>
+    <div class="container">
+        <h1>Extracción de Comentarios de YouTube</h1>
+        <form id="extractForm" method="POST" action="/extract_comments">
+            <label for="youtuber_name">Nombre del YouTuber:</label>
+            <input type="text" id="youtuber_name" name="youtuber_name" required><br>
+            <label for="num_videos">Número de videos:</label>
+            <input type="number" id="num_videos" name="num_videos" min="1" required><br>
+            <button type="submit">Extraer Comentarios</button>
+        </form>
+        <div id="result" class="hide"></div>
+
+
+
+        <h1>Proceso de Predicciones en CSV</h1>
+        <form method="POST" action="/process_csv">
+            <button type="submit">Procesar CSV y Generar Gráfica</button>
+        </form>
+
+        {% if graph_image %}
+        <h2>Distribución de las Clases Predichas</h2>
+        <img src="{{ url_for('static', filename=graph_image) }}" alt="Distribución de las Clases Predichas">
+        {% endif %}
+
+        {% if table_html %}
+        <h2>Tabla de Resultados</h2>
+        <iframe src="{{ url_for('static', filename=table_html) }}" width="100%" height="600px" style="border:none;"></iframe>
+        {% endif %}
+
+        {% if comentarios %}
+        <h2>Etiquetar Comentarios</h2>
+        <form method="POST" action="/submit_labels">
+            <table>
+                <tr>
+                    <th>Comentario</th>
+                    <th>Predicción</th>
+                    <th>Etiqueta Verdadera</th>
+                </tr>
+                {% for comentario in comentarios %}
+                <tr>
+                    <td>{{ comentario['comment'] }}</td>
+                    <td>{{ comentario['predicciones_nombres'] }}</td>
+                    <td>
+                        <select name="etiqueta_verdadera">
+                            <option value="asustado">Asustado</option>
+                            <option value="enojado">Enojado</option>
+                            <option value="triste">Triste</option>
+                            <option value="pacifico">Pacífico</option>
+                            <option value="poderoso">Poderoso</option>
+                            <option value="alegre">Alegre</option>
+                        </select>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            <button type="submit">Enviar Etiquetas</button>
+        </form>
+        {% endif %}
+
+        {% if confusion_matrix_image %}
+        <h2>Matriz de Confusión</h2>
+        <div class="confusion-matrix">
+            <img src="{{ url_for('static', filename=confusion_matrix_image) }}" alt="Matriz de Confusión">
+        </div>
+        {% endif %}
+
+        {% if etiquetas_table_html %}
+        <h2>Tabla de Etiquetas Reales y Predichas</h2>
+        <iframe src="{{ url_for('static', filename=etiquetas_table_html) }}" width="100%" height="600px" style="border:none;"></iframe>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
     <script>
         document.getElementById('extractForm').addEventListener('submit', function (event) {
             event.preventDefault();
@@ -29,27 +92,20 @@
                 const resultDiv = document.getElementById('result');
                 if (data.error) {
                     resultDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+                    resultDiv.classList.remove('hide');
+                    resultDiv.classList.add('show');
                 } else {
                     resultDiv.innerHTML = `<p>${data.message}</p>`;
+                    resultDiv.classList.remove('hide');
+                    resultDiv.classList.add('show');
                 }
             });
         });
+
+        var socket = io();
+        socket.on('update_frame', function(data) {
+            document.getElementById('live-feed').src = 'data:image/png;base64,' + data.frame;
+        });
     </script>
-   <h1>Proceso de Predicciones en CSV</h1>
-    <form method="POST" action="/process_csv">
-        <button type="submit">Procesar CSV y Generar Gráfica</button>
-    </form>
-
-    {% if graph_image %}
-    <h2>Distribución de las Clases Predichas</h2>
-    <img src="{{ url_for('static', filename=graph_image) }}" alt="Distribución de las Clases Predichas">
-    {% endif %}
-
-    {% if table_html %}
-    <h2>Tabla de Resultados</h2>
-    <iframe src="{{ url_for('static', filename=table_html) }}" width="100%" height="600px" style="border:none;"></iframe>
-    {% endif %}
-
-
 </body>
 </html>
